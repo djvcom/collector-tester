@@ -2,7 +2,9 @@
 
 use std::path::PathBuf;
 
-use collector_tester::container::{CollectorTestHarness, CollectorTestHarnessBuilder, find_free_port};
+use collector_tester::container::{
+    CollectorTestHarness, CollectorTestHarnessBuilder, find_free_port,
+};
 
 pub fn config_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
