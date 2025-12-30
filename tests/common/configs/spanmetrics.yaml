@@ -1,0 +1,35 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:${COLLECTOR_GRPC_PORT}
+      http:
+        endpoint: 0.0.0.0:${COLLECTOR_HTTP_PORT}
+
+connectors:
+  spanmetrics:
+    namespace: test.spanmetrics
+    histogram:
+      explicit:
+        buckets: [10ms, 50ms, 100ms, 500ms, 1s]
+    dimensions:
+      - name: http.method
+    metrics_flush_interval: 1s
+
+exporters:
+  otlp/mock:
+    endpoint: ${OTLP_EXPORTER_ENDPOINT}
+    tls:
+      insecure: true
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [spanmetrics]
+    metrics:
+      receivers: [spanmetrics]
+      exporters: [otlp/mock]

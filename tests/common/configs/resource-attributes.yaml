@@ -1,0 +1,38 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:${COLLECTOR_GRPC_PORT}
+      http:
+        endpoint: 0.0.0.0:${COLLECTOR_HTTP_PORT}
+
+processors:
+  resource:
+    attributes:
+      - key: telemetry.processed_by
+        value: main-collector
+        action: upsert
+
+exporters:
+  otlp/mock:
+    endpoint: ${OTLP_EXPORTER_ENDPOINT}
+    tls:
+      insecure: true
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource]
+      exporters: [otlp/mock]
+    metrics:
+      receivers: [otlp]
+      processors: [resource]
+      exporters: [otlp/mock]
+    logs:
+      receivers: [otlp]
+      processors: [resource]
+      exporters: [otlp/mock]

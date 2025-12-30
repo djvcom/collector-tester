@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry::trace::TracerProvider;
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::Resource;
-use opentelemetry_sdk::logs::SdkLoggerProvider;
+use opentelemetry_sdk::logs::{SdkLogger, SdkLoggerProvider};
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 
@@ -97,17 +98,33 @@ impl TelemetryClient {
         self.meter_provider.meter(name)
     }
 
+    pub fn logger(&self) -> OpenTelemetryTracingBridge<SdkLoggerProvider, SdkLogger> {
+        OpenTelemetryTracingBridge::new(&self.logger_provider)
+    }
+
     pub fn flush(&self) -> Result<()> {
+        self.flush_traces()?;
+        self.flush_metrics()?;
+        self.flush_logs()?;
+        Ok(())
+    }
+
+    pub fn flush_traces(&self) -> Result<()> {
         self.tracer_provider
             .force_flush()
-            .map_err(|e| Error::Other(format!("failed to flush traces: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to flush traces: {e}")))
+    }
+
+    pub fn flush_metrics(&self) -> Result<()> {
         self.meter_provider
             .force_flush()
-            .map_err(|e| Error::Other(format!("failed to flush metrics: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to flush metrics: {e}")))
+    }
+
+    pub fn flush_logs(&self) -> Result<()> {
         self.logger_provider
             .force_flush()
-            .map_err(|e| Error::Other(format!("failed to flush logs: {e}")))?;
-        Ok(())
+            .map_err(|e| Error::Other(format!("failed to flush logs: {e}")))
     }
 
     pub fn shutdown(self) -> Result<()> {

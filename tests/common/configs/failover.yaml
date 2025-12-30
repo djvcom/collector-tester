@@ -1,0 +1,49 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:${COLLECTOR_GRPC_PORT}
+      http:
+        endpoint: 0.0.0.0:${COLLECTOR_HTTP_PORT}
+
+connectors:
+  failover:
+    priority_levels:
+      - [traces/primary]
+      - [traces/fallback]
+    retry_interval: 2s
+    retry_gap: 1s
+    max_retries: 1
+
+exporters:
+  otlp/primary:
+    endpoint: ${PRIMARY_ENDPOINT}
+    retry_on_failure:
+      enabled: false
+    sending_queue:
+      enabled: false
+    tls:
+      insecure: true
+  otlp/fallback:
+    endpoint: ${FALLBACK_ENDPOINT}
+    retry_on_failure:
+      enabled: false
+    sending_queue:
+      enabled: false
+    tls:
+      insecure: true
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [failover]
+    traces/primary:
+      receivers: [failover]
+      exporters: [otlp/primary]
+    traces/fallback:
+      receivers: [failover]
+      exporters: [otlp/fallback]

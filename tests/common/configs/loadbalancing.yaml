@@ -1,0 +1,28 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:${COLLECTOR_GRPC_PORT}
+      http:
+        endpoint: 0.0.0.0:${COLLECTOR_HTTP_PORT}
+
+exporters:
+  loadbalancing:
+    protocol:
+      otlp:
+        tls:
+          insecure: true
+    resolver:
+      static:
+        hostnames:
+          - ${BACKEND_1}
+          - ${BACKEND_2}
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [loadbalancing]
