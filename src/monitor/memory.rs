@@ -15,20 +15,6 @@ pub struct MemorySnapshot {
     pub limit_bytes: Option<u64>,
 }
 
-impl MemorySnapshot {
-    pub fn usage_mb(&self) -> f64 {
-        self.usage_bytes as f64 / 1_000_000.0
-    }
-
-    pub fn max_usage_mb(&self) -> f64 {
-        self.max_usage_bytes as f64 / 1_000_000.0
-    }
-
-    pub fn limit_mb(&self) -> Option<f64> {
-        self.limit_bytes.map(|l| l as f64 / 1_000_000.0)
-    }
-}
-
 pub struct ContainerMonitor {
     docker: Docker,
     container_id: String,
@@ -68,9 +54,7 @@ impl ContainerMonitor {
             self.samples.push(snapshot.clone());
             Ok(snapshot)
         } else {
-            Err(Error::Timeout(
-                "no stats received from container".to_string(),
-            ))
+            Err(Error::Other("no stats received from container".to_string()))
         }
     }
 
@@ -78,7 +62,7 @@ impl ContainerMonitor {
         &mut self,
         duration: Duration,
         sample_interval: Duration,
-    ) -> Result<Vec<MemorySnapshot>> {
+    ) -> Result<()> {
         let start = Instant::now();
         let mut ticker = interval(sample_interval);
 
@@ -87,15 +71,7 @@ impl ContainerMonitor {
             self.sample().await?;
         }
 
-        Ok(self.samples.clone())
-    }
-
-    pub fn samples(&self) -> &[MemorySnapshot] {
-        &self.samples
-    }
-
-    pub fn clear_samples(&mut self) {
-        self.samples.clear();
+        Ok(())
     }
 
     pub fn analyse(&self) -> MemoryAnalysis {

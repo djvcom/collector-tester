@@ -1,7 +1,5 @@
-pub mod collector;
-pub mod config;
-
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use mock_collector::{MockServer, Protocol, ServerHandle};
@@ -11,94 +9,104 @@ use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 
 use crate::error::{Error, Result};
 
-pub use collector::{CollectorImage, OTLP_GRPC_PORT, OTLP_HTTP_PORT};
-pub use config::{CollectorConfig, CollectorConfigBuilder};
-
 const CONTAINER_CONFIG_PATH: &str = "/etc/otelcol-contrib/config.yaml";
 const COLLECTOR_IMAGE: &str = "otel/opentelemetry-collector-contrib";
+const DEFAULT_MOCK_HOST: &str = "127.0.0.1";
 
-fn find_free_port() -> Result<u16> {
+pub fn find_free_port() -> Result<u16> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| Error::Container(format!("failed to find free port: {e}")))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| Error::Container(format!("failed to get local address: {e}")))?
-        .port();
-    Ok(port)
+        .map_err(|e| Error::Other(format!("failed to find free port: {e}")))?;
+    Ok(listener.local_addr()?.port())
 }
 
-pub struct CollectorTestHarness {
-    mock_server: ServerHandle,
-    container: ContainerAsync<GenericImage>,
-    container_id: String,
-    collector_grpc_port: u16,
-    collector_http_port: u16,
+pub struct CollectorTestHarnessBuilder {
+    config_path: PathBuf,
+    exporter_endpoint_var: String,
+    mock_host: String,
+    tag: String,
+    env_vars: HashMap<String, String>,
 }
 
-impl CollectorTestHarness {
-    pub async fn start(config_path: impl AsRef<Path>) -> Result<Self> {
-        Self::start_with_tag(config_path, "latest").await
+impl CollectorTestHarnessBuilder {
+    pub fn new(config_path: impl AsRef<Path>, exporter_endpoint_var: impl Into<String>) -> Self {
+        Self {
+            config_path: config_path.as_ref().to_path_buf(),
+            exporter_endpoint_var: exporter_endpoint_var.into(),
+            mock_host: DEFAULT_MOCK_HOST.to_string(),
+            tag: "latest".to_string(),
+            env_vars: HashMap::new(),
+        }
     }
 
-    pub async fn start_with_tag(config_path: impl AsRef<Path>, tag: &str) -> Result<Self> {
-        let config_path = config_path.as_ref();
+    pub fn mock_host(mut self, host: impl Into<String>) -> Self {
+        self.mock_host = host.into();
+        self
+    }
 
+    pub fn tag(mut self, tag: impl Into<String>) -> Self {
+        self.tag = tag.into();
+        self
+    }
+
+    pub fn env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env_vars.insert(key.into(), value.into());
+        self
+    }
+
+    pub async fn start(self) -> Result<CollectorTestHarness> {
         let mock_server = MockServer::builder()
             .protocol(Protocol::Grpc)
             .host(std::net::IpAddr::from([0, 0, 0, 0]))
             .start()
             .await
-            .map_err(|e| Error::Container(format!("failed to start mock server: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to start mock server: {e}")))?;
 
         let mock_port = mock_server.addr().port();
+        let mock_endpoint = format!("{}:{}", self.mock_host, mock_port);
 
-        // Find free ports for the collector (host network shares ports with host)
-        let collector_grpc_port = find_free_port()?;
-        let collector_http_port = find_free_port()?;
+        let config_content = std::fs::read_to_string(&self.config_path)?;
 
-        let config_content = std::fs::read_to_string(config_path)?;
-        let config_content = config_content
-            .replace("${MOCK_COLLECTOR_PORT}", &mock_port.to_string())
-            .replace("${COLLECTOR_GRPC_PORT}", &collector_grpc_port.to_string())
-            .replace("${COLLECTOR_HTTP_PORT}", &collector_http_port.to_string());
-
-        let container = GenericImage::new(COLLECTOR_IMAGE, tag)
+        let mut container = GenericImage::new(COLLECTOR_IMAGE, &self.tag)
             .with_wait_for(WaitFor::seconds(5))
             .with_copy_to(CONTAINER_CONFIG_PATH, config_content.into_bytes())
+            .with_env_var(&self.exporter_endpoint_var, &mock_endpoint)
             .with_startup_timeout(Duration::from_secs(30))
-            .with_network("host")
-            .start()
-            .await?;
+            .with_network("host");
 
+        for (key, value) in &self.env_vars {
+            container = container.with_env_var(key, value);
+        }
+
+        let container = container.start().await?;
         let container_id = container.id().to_string();
 
-        Ok(Self {
+        Ok(CollectorTestHarness {
             mock_server,
             container,
             container_id,
-            collector_grpc_port,
-            collector_http_port,
+            mock_host: self.mock_host,
         })
     }
+}
 
-    pub fn collector_grpc_endpoint(&self) -> String {
-        format!("http://127.0.0.1:{}", self.collector_grpc_port)
+pub struct CollectorTestHarness {
+    mock_server: ServerHandle,
+    #[allow(dead_code)]
+    container: ContainerAsync<GenericImage>,
+    container_id: String,
+    mock_host: String,
+}
+
+impl CollectorTestHarness {
+    pub fn builder(
+        config_path: impl AsRef<Path>,
+        exporter_endpoint_var: impl Into<String>,
+    ) -> CollectorTestHarnessBuilder {
+        CollectorTestHarnessBuilder::new(config_path, exporter_endpoint_var)
     }
 
-    pub fn collector_http_endpoint(&self) -> String {
-        format!("http://127.0.0.1:{}", self.collector_http_port)
-    }
-
-    pub fn collector_traces_endpoint(&self) -> String {
-        format!("http://127.0.0.1:{}/v1/traces", self.collector_http_port)
-    }
-
-    pub fn collector_grpc_port(&self) -> u16 {
-        self.collector_grpc_port
-    }
-
-    pub fn collector_http_port(&self) -> u16 {
-        self.collector_http_port
+    pub fn mock_host(&self) -> &str {
+        &self.mock_host
     }
 
     pub fn container_id(&self) -> &str {
@@ -109,15 +117,11 @@ impl CollectorTestHarness {
         &self.mock_server
     }
 
-    pub fn container(&self) -> &ContainerAsync<GenericImage> {
-        &self.container
-    }
-
     pub async fn shutdown(self) -> Result<()> {
         self.mock_server
             .shutdown()
             .await
-            .map_err(|e| Error::Container(format!("failed to shutdown mock server: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to shutdown mock server: {e}")))?;
         Ok(())
     }
 }

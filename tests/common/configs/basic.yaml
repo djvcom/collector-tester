@@ -15,7 +15,7 @@ processors:
 
 exporters:
   otlp/mock:
-    endpoint: 127.0.0.1:${MOCK_COLLECTOR_PORT}
+    endpoint: ${OTLP_EXPORTER_ENDPOINT}
     tls:
       insecure: true
 

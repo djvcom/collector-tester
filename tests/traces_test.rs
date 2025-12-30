@@ -2,16 +2,25 @@ mod common;
 
 use std::time::Duration;
 
-use collector_tester::prelude::*;
+use collector_tester::container::{CollectorTestHarness, find_free_port};
+use collector_tester::input::TelemetryClient;
 use opentelemetry::trace::{TraceContextExt, Tracer};
 
 #[tokio::test]
 async fn test_basic_trace_processing() {
-    let harness = CollectorTestHarness::start(common::config_path("basic.yaml"))
-        .await
-        .expect("failed to start harness");
+    let grpc_port = find_free_port().expect("failed to find free port");
+    let http_port = find_free_port().expect("failed to find free port");
 
-    let client = TelemetryClient::new(&harness.collector_traces_endpoint())
+    let harness =
+        CollectorTestHarness::builder(common::config_path("basic.yaml"), "OTLP_EXPORTER_ENDPOINT")
+            .env_var("COLLECTOR_GRPC_PORT", grpc_port.to_string())
+            .env_var("COLLECTOR_HTTP_PORT", http_port.to_string())
+            .start()
+            .await
+            .expect("failed to start harness");
+
+    let endpoint = format!("http://127.0.0.1:{http_port}/v1/traces");
+    let client = TelemetryClient::new(&endpoint)
         .await
         .expect("failed to create client");
 
@@ -50,11 +59,19 @@ async fn test_basic_trace_processing() {
 
 #[tokio::test]
 async fn test_attribute_processor() {
-    let harness = CollectorTestHarness::start(common::config_path("basic.yaml"))
-        .await
-        .expect("failed to start harness");
+    let grpc_port = find_free_port().expect("failed to find free port");
+    let http_port = find_free_port().expect("failed to find free port");
 
-    let client = TelemetryClient::new(&harness.collector_traces_endpoint())
+    let harness =
+        CollectorTestHarness::builder(common::config_path("basic.yaml"), "OTLP_EXPORTER_ENDPOINT")
+            .env_var("COLLECTOR_GRPC_PORT", grpc_port.to_string())
+            .env_var("COLLECTOR_HTTP_PORT", http_port.to_string())
+            .start()
+            .await
+            .expect("failed to start harness");
+
+    let endpoint = format!("http://127.0.0.1:{http_port}/v1/traces");
+    let client = TelemetryClient::new(&endpoint)
         .await
         .expect("failed to create client");
 

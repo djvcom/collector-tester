@@ -1,6 +1,5 @@
 pub mod memory;
 
-use std::path::Path;
 use std::time::Duration;
 
 use crate::container::CollectorTestHarness;
@@ -12,26 +11,18 @@ pub use memory::{ContainerMonitor, MemoryAnalysis, MemorySnapshot};
 pub struct LoadTestHarness {
     harness: CollectorTestHarness,
     monitor: ContainerMonitor,
+    telemetry_endpoint: String,
 }
 
 impl LoadTestHarness {
-    pub async fn start(config_path: impl AsRef<Path>) -> Result<Self> {
-        let harness = CollectorTestHarness::start(config_path).await?;
+    pub async fn new(harness: CollectorTestHarness, telemetry_endpoint: String) -> Result<Self> {
         let monitor = ContainerMonitor::new(harness.container_id()).await?;
 
-        Ok(Self { harness, monitor })
-    }
-
-    pub fn harness(&self) -> &CollectorTestHarness {
-        &self.harness
-    }
-
-    pub fn monitor(&self) -> &ContainerMonitor {
-        &self.monitor
-    }
-
-    pub fn monitor_mut(&mut self) -> &mut ContainerMonitor {
-        &mut self.monitor
+        Ok(Self {
+            harness,
+            monitor,
+            telemetry_endpoint,
+        })
     }
 
     pub async fn run_load_test(
@@ -39,18 +30,19 @@ impl LoadTestHarness {
         load_config: LoadConfig,
         monitor_interval: Duration,
     ) -> Result<LoadTestResult> {
-        let client = TelemetryClient::new(&self.harness.collector_grpc_endpoint()).await?;
+        let client = TelemetryClient::new(&self.telemetry_endpoint).await?;
         let generator = LoadGenerator::new(&client, load_config.clone());
 
         let monitor_duration = load_config.duration;
 
-        let (load_result, _) = tokio::join!(
+        let (load_result, monitor_result) = tokio::join!(
             generator.run(),
             self.monitor
                 .monitor_continuous(monitor_duration, monitor_interval)
         );
 
         let load_stats = load_result?;
+        monitor_result?;
         let memory_analysis = self.monitor.analyse();
 
         client.shutdown()?;

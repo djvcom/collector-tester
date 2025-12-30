@@ -14,7 +14,6 @@ pub struct TelemetryClient {
     tracer_provider: SdkTracerProvider,
     meter_provider: SdkMeterProvider,
     logger_provider: SdkLoggerProvider,
-    endpoint: String,
 }
 
 impl TelemetryClient {
@@ -35,7 +34,6 @@ impl TelemetryClient {
             tracer_provider,
             meter_provider,
             logger_provider,
-            endpoint: endpoint.to_string(),
         })
     }
 
@@ -48,14 +46,12 @@ impl TelemetryClient {
             .with_endpoint(endpoint)
             .with_timeout(Duration::from_secs(10))
             .build()
-            .map_err(|e| Error::Input(format!("failed to create span exporter: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to create span exporter: {e}")))?;
 
-        let provider = SdkTracerProvider::builder()
+        Ok(SdkTracerProvider::builder()
             .with_resource(resource)
             .with_batch_exporter(exporter)
-            .build();
-
-        Ok(provider)
+            .build())
     }
 
     async fn build_meter_provider(endpoint: &str, resource: Resource) -> Result<SdkMeterProvider> {
@@ -64,18 +60,16 @@ impl TelemetryClient {
             .with_endpoint(endpoint)
             .with_timeout(Duration::from_secs(10))
             .build()
-            .map_err(|e| Error::Input(format!("failed to create metric exporter: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to create metric exporter: {e}")))?;
 
         let reader = PeriodicReader::builder(exporter)
             .with_interval(Duration::from_secs(1))
             .build();
 
-        let provider = SdkMeterProvider::builder()
+        Ok(SdkMeterProvider::builder()
             .with_resource(resource)
             .with_reader(reader)
-            .build();
-
-        Ok(provider)
+            .build())
     }
 
     async fn build_logger_provider(
@@ -87,14 +81,12 @@ impl TelemetryClient {
             .with_endpoint(endpoint)
             .with_timeout(Duration::from_secs(10))
             .build()
-            .map_err(|e| Error::Input(format!("failed to create log exporter: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to create log exporter: {e}")))?;
 
-        let provider = SdkLoggerProvider::builder()
+        Ok(SdkLoggerProvider::builder()
             .with_resource(resource)
             .with_batch_exporter(exporter)
-            .build();
-
-        Ok(provider)
+            .build())
     }
 
     pub fn tracer(&self, name: &'static str) -> opentelemetry_sdk::trace::Tracer {
@@ -105,45 +97,29 @@ impl TelemetryClient {
         self.meter_provider.meter(name)
     }
 
-    pub fn logger_provider(&self) -> &SdkLoggerProvider {
-        &self.logger_provider
-    }
-
-    pub fn tracer_provider(&self) -> &SdkTracerProvider {
-        &self.tracer_provider
-    }
-
-    pub fn meter_provider(&self) -> &SdkMeterProvider {
-        &self.meter_provider
-    }
-
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
-    }
-
     pub fn flush(&self) -> Result<()> {
         self.tracer_provider
             .force_flush()
-            .map_err(|e| Error::Otel(format!("failed to flush traces: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to flush traces: {e}")))?;
         self.meter_provider
             .force_flush()
-            .map_err(|e| Error::Otel(format!("failed to flush metrics: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to flush metrics: {e}")))?;
         self.logger_provider
             .force_flush()
-            .map_err(|e| Error::Otel(format!("failed to flush logs: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to flush logs: {e}")))?;
         Ok(())
     }
 
     pub fn shutdown(self) -> Result<()> {
         self.tracer_provider
             .shutdown()
-            .map_err(|e| Error::Otel(format!("failed to shutdown traces: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to shutdown traces: {e}")))?;
         self.meter_provider
             .shutdown()
-            .map_err(|e| Error::Otel(format!("failed to shutdown metrics: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to shutdown metrics: {e}")))?;
         self.logger_provider
             .shutdown()
-            .map_err(|e| Error::Otel(format!("failed to shutdown logs: {e}")))?;
+            .map_err(|e| Error::Other(format!("failed to shutdown logs: {e}")))?;
         Ok(())
     }
 }
