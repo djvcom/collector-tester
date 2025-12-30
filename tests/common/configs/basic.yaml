@@ -1,0 +1,38 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:${COLLECTOR_GRPC_PORT}
+      http:
+        endpoint: 0.0.0.0:${COLLECTOR_HTTP_PORT}
+
+processors:
+  attributes/add-test-marker:
+    actions:
+      - key: test.processed
+        value: "true"
+        action: insert
+
+exporters:
+  otlp/mock:
+    endpoint: 127.0.0.1:${MOCK_COLLECTOR_PORT}
+    tls:
+      insecure: true
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [attributes/add-test-marker]
+      exporters: [otlp/mock]
+    metrics:
+      receivers: [otlp]
+      processors: []
+      exporters: [otlp/mock]
+    logs:
+      receivers: [otlp]
+      processors: []
+      exporters: [otlp/mock]
