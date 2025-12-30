@@ -30,10 +30,9 @@ impl LoadTestHarness {
         load_config: LoadConfig,
         monitor_interval: Duration,
     ) -> Result<LoadTestResult> {
-        let client = TelemetryClient::new(&self.telemetry_endpoint).await?;
-        let generator = LoadGenerator::new(&client, load_config.clone());
-
+        let client = TelemetryClient::new(&self.telemetry_endpoint)?;
         let monitor_duration = load_config.duration;
+        let generator = LoadGenerator::new(&client, load_config);
 
         let (load_result, monitor_result) = tokio::join!(
             generator.run(),

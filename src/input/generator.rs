@@ -39,17 +39,17 @@ pub struct LoadStats {
 }
 
 impl LoadStats {
-    fn rate(&self, count: usize) -> f64 {
+    fn per_second(&self, count: usize) -> f64 {
         let secs = self.duration.as_secs_f64();
         if secs > 0.0 { count as f64 / secs } else { 0.0 }
     }
 
     pub fn spans_per_second(&self) -> f64 {
-        self.rate(self.spans_sent)
+        self.per_second(self.spans_sent)
     }
 
     pub fn metrics_per_second(&self) -> f64 {
-        self.rate(self.metrics_sent)
+        self.per_second(self.metrics_sent)
     }
 }
 

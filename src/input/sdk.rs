@@ -9,7 +9,7 @@ use opentelemetry_sdk::logs::{SdkLogger, SdkLoggerProvider};
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
 
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, Signal};
 
 pub struct TelemetryClient {
     tracer_provider: SdkTracerProvider,
@@ -18,18 +18,18 @@ pub struct TelemetryClient {
 }
 
 impl TelemetryClient {
-    pub async fn new(endpoint: &str) -> Result<Self> {
-        Self::with_service_name(endpoint, "collector-tester").await
+    pub fn new(endpoint: &str) -> Result<Self> {
+        Self::with_service_name(endpoint, "collector-tester")
     }
 
-    pub async fn with_service_name(endpoint: &str, service_name: &str) -> Result<Self> {
+    pub fn with_service_name(endpoint: &str, service_name: &str) -> Result<Self> {
         let resource = Resource::builder()
             .with_service_name(service_name.to_string())
             .build();
 
-        let tracer_provider = Self::build_tracer_provider(endpoint, resource.clone()).await?;
-        let meter_provider = Self::build_meter_provider(endpoint, resource.clone()).await?;
-        let logger_provider = Self::build_logger_provider(endpoint, resource).await?;
+        let tracer_provider = Self::build_tracer_provider(endpoint, resource.clone())?;
+        let meter_provider = Self::build_meter_provider(endpoint, resource.clone())?;
+        let logger_provider = Self::build_logger_provider(endpoint, resource)?;
 
         Ok(Self {
             tracer_provider,
@@ -38,16 +38,16 @@ impl TelemetryClient {
         })
     }
 
-    async fn build_tracer_provider(
-        endpoint: &str,
-        resource: Resource,
-    ) -> Result<SdkTracerProvider> {
+    fn build_tracer_provider(endpoint: &str, resource: Resource) -> Result<SdkTracerProvider> {
         let exporter = SpanExporter::builder()
             .with_http()
             .with_endpoint(endpoint)
             .with_timeout(Duration::from_secs(10))
             .build()
-            .map_err(|e| Error::Other(format!("failed to create span exporter: {e}")))?;
+            .map_err(|e| Error::ExporterBuild {
+                signal: Signal::Traces,
+                message: e.to_string(),
+            })?;
 
         Ok(SdkTracerProvider::builder()
             .with_resource(resource)
@@ -55,13 +55,16 @@ impl TelemetryClient {
             .build())
     }
 
-    async fn build_meter_provider(endpoint: &str, resource: Resource) -> Result<SdkMeterProvider> {
+    fn build_meter_provider(endpoint: &str, resource: Resource) -> Result<SdkMeterProvider> {
         let exporter = MetricExporter::builder()
             .with_tonic()
             .with_endpoint(endpoint)
             .with_timeout(Duration::from_secs(10))
             .build()
-            .map_err(|e| Error::Other(format!("failed to create metric exporter: {e}")))?;
+            .map_err(|e| Error::ExporterBuild {
+                signal: Signal::Metrics,
+                message: e.to_string(),
+            })?;
 
         let reader = PeriodicReader::builder(exporter)
             .with_interval(Duration::from_secs(1))
@@ -73,16 +76,16 @@ impl TelemetryClient {
             .build())
     }
 
-    async fn build_logger_provider(
-        endpoint: &str,
-        resource: Resource,
-    ) -> Result<SdkLoggerProvider> {
+    fn build_logger_provider(endpoint: &str, resource: Resource) -> Result<SdkLoggerProvider> {
         let exporter = LogExporter::builder()
             .with_tonic()
             .with_endpoint(endpoint)
             .with_timeout(Duration::from_secs(10))
             .build()
-            .map_err(|e| Error::Other(format!("failed to create log exporter: {e}")))?;
+            .map_err(|e| Error::ExporterBuild {
+                signal: Signal::Logs,
+                message: e.to_string(),
+            })?;
 
         Ok(SdkLoggerProvider::builder()
             .with_resource(resource)
@@ -102,6 +105,7 @@ impl TelemetryClient {
         OpenTelemetryTracingBridge::new(&self.logger_provider)
     }
 
+    #[must_use = "flush result should be handled"]
     pub fn flush(&self) -> Result<()> {
         self.flush_traces()?;
         self.flush_metrics()?;
@@ -109,34 +113,53 @@ impl TelemetryClient {
         Ok(())
     }
 
+    #[must_use = "flush result should be handled"]
     pub fn flush_traces(&self) -> Result<()> {
         self.tracer_provider
             .force_flush()
-            .map_err(|e| Error::Other(format!("failed to flush traces: {e}")))
+            .map_err(|e| Error::Flush {
+                signal: Signal::Traces,
+                message: e.to_string(),
+            })
     }
 
+    #[must_use = "flush result should be handled"]
     pub fn flush_metrics(&self) -> Result<()> {
-        self.meter_provider
-            .force_flush()
-            .map_err(|e| Error::Other(format!("failed to flush metrics: {e}")))
+        self.meter_provider.force_flush().map_err(|e| Error::Flush {
+            signal: Signal::Metrics,
+            message: e.to_string(),
+        })
     }
 
+    #[must_use = "flush result should be handled"]
     pub fn flush_logs(&self) -> Result<()> {
         self.logger_provider
             .force_flush()
-            .map_err(|e| Error::Other(format!("failed to flush logs: {e}")))
+            .map_err(|e| Error::Flush {
+                signal: Signal::Logs,
+                message: e.to_string(),
+            })
     }
 
     pub fn shutdown(self) -> Result<()> {
         self.tracer_provider
             .shutdown()
-            .map_err(|e| Error::Other(format!("failed to shutdown traces: {e}")))?;
+            .map_err(|e| Error::Shutdown {
+                signal: Signal::Traces,
+                message: e.to_string(),
+            })?;
         self.meter_provider
             .shutdown()
-            .map_err(|e| Error::Other(format!("failed to shutdown metrics: {e}")))?;
+            .map_err(|e| Error::Shutdown {
+                signal: Signal::Metrics,
+                message: e.to_string(),
+            })?;
         self.logger_provider
             .shutdown()
-            .map_err(|e| Error::Other(format!("failed to shutdown logs: {e}")))?;
+            .map_err(|e| Error::Shutdown {
+                signal: Signal::Logs,
+                message: e.to_string(),
+            })?;
         Ok(())
     }
 }

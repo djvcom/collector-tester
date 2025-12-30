@@ -54,7 +54,7 @@ impl ContainerMonitor {
             self.samples.push(snapshot.clone());
             Ok(snapshot)
         } else {
-            Err(Error::Other("no stats received from container".to_string()))
+            Err(Error::NoContainerStats)
         }
     }
 
@@ -79,30 +79,41 @@ impl ContainerMonitor {
             return MemoryAnalysis::default();
         }
 
-        let usages: Vec<u64> = self.samples.iter().map(|s| s.usage_bytes).collect();
+        let (min, max, sum, count) = self.samples.iter().fold(
+            (u64::MAX, 0u64, 0u64, 0usize),
+            |(min, max, sum, count), sample| {
+                (
+                    min.min(sample.usage_bytes),
+                    max.max(sample.usage_bytes),
+                    sum + sample.usage_bytes,
+                    count + 1,
+                )
+            },
+        );
 
         MemoryAnalysis {
-            min_bytes: usages.iter().copied().min().unwrap_or(0),
-            max_bytes: usages.iter().copied().max().unwrap_or(0),
-            avg_bytes: usages.iter().sum::<u64>() / usages.len() as u64,
-            sample_count: self.samples.len(),
+            min_bytes: min,
+            max_bytes: max,
+            avg_bytes: sum / count as u64,
+            sample_count: count,
             growth_rate_bytes_per_sec: self.calculate_growth_rate(),
         }
     }
 
     fn calculate_growth_rate(&self) -> f64 {
-        if self.samples.len() < 2 {
-            return 0.0;
-        }
+        match self.samples.as_slice() {
+            [] | [_] => 0.0,
+            samples => {
+                let first = &samples[0];
+                let last = &samples[samples.len() - 1];
+                let duration = last.timestamp.duration_since(first.timestamp);
 
-        let first = &self.samples[0];
-        let last = &self.samples[self.samples.len() - 1];
-        let duration_secs = last.timestamp.duration_since(first.timestamp).as_secs_f64();
-
-        if duration_secs > 0.0 {
-            (last.usage_bytes as f64 - first.usage_bytes as f64) / duration_secs
-        } else {
-            0.0
+                if duration.is_zero() {
+                    0.0
+                } else {
+                    (last.usage_bytes as f64 - first.usage_bytes as f64) / duration.as_secs_f64()
+                }
+            }
         }
     }
 }
@@ -117,20 +128,22 @@ pub struct MemoryAnalysis {
 }
 
 impl MemoryAnalysis {
+    const BYTES_PER_MB: f64 = 1_000_000.0;
+
     pub fn min_mb(&self) -> f64 {
-        self.min_bytes as f64 / 1_000_000.0
+        self.min_bytes as f64 / Self::BYTES_PER_MB
     }
 
     pub fn max_mb(&self) -> f64 {
-        self.max_bytes as f64 / 1_000_000.0
+        self.max_bytes as f64 / Self::BYTES_PER_MB
     }
 
     pub fn avg_mb(&self) -> f64 {
-        self.avg_bytes as f64 / 1_000_000.0
+        self.avg_bytes as f64 / Self::BYTES_PER_MB
     }
 
     pub fn growth_rate_mb_per_sec(&self) -> f64 {
-        self.growth_rate_bytes_per_sec / 1_000_000.0
+        self.growth_rate_bytes_per_sec / Self::BYTES_PER_MB
     }
 
     pub fn has_unbounded_growth(&self, threshold_bytes_per_sec: f64) -> bool {

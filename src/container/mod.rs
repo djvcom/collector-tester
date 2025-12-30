@@ -14,8 +14,7 @@ const COLLECTOR_IMAGE: &str = "otel/opentelemetry-collector-contrib";
 const DEFAULT_MOCK_HOST: &str = "127.0.0.1";
 
 pub fn find_free_port() -> Result<u16> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| Error::Other(format!("failed to find free port: {e}")))?;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(Error::PortAllocation)?;
     Ok(listener.local_addr()?.port())
 }
 
@@ -38,16 +37,19 @@ impl CollectorTestHarnessBuilder {
         }
     }
 
+    #[must_use]
     pub fn mock_host(mut self, host: impl Into<String>) -> Self {
         self.mock_host = host.into();
         self
     }
 
+    #[must_use]
     pub fn tag(mut self, tag: impl Into<String>) -> Self {
         self.tag = tag.into();
         self
     }
 
+    #[must_use]
     pub fn env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env_vars.insert(key.into(), value.into());
         self
@@ -59,7 +61,7 @@ impl CollectorTestHarnessBuilder {
             .host(std::net::IpAddr::from([0, 0, 0, 0]))
             .start()
             .await
-            .map_err(|e| Error::Other(format!("failed to start mock server: {e}")))?;
+            .map_err(|e| Error::MockServerStart(e.to_string()))?;
 
         let mock_port = mock_server.addr().port();
         let mock_endpoint = format!("{}:{}", self.mock_host, mock_port);
@@ -121,7 +123,7 @@ impl CollectorTestHarness {
         self.mock_server
             .shutdown()
             .await
-            .map_err(|e| Error::Other(format!("failed to shutdown mock server: {e}")))?;
+            .map_err(|e| Error::MockServerShutdown(e.to_string()))?;
         Ok(())
     }
 }
