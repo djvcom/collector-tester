@@ -22,6 +22,7 @@ pub struct CollectorTestHarnessBuilder {
     config_path: PathBuf,
     exporter_endpoint_var: String,
     mock_host: String,
+    image: String,
     tag: String,
     env_vars: HashMap<String, String>,
 }
@@ -32,6 +33,7 @@ impl CollectorTestHarnessBuilder {
             config_path: config_path.as_ref().to_path_buf(),
             exporter_endpoint_var: exporter_endpoint_var.into(),
             mock_host: DEFAULT_MOCK_HOST.to_string(),
+            image: COLLECTOR_IMAGE.to_string(),
             tag: "latest".to_string(),
             env_vars: HashMap::new(),
         }
@@ -40,6 +42,12 @@ impl CollectorTestHarnessBuilder {
     #[must_use]
     pub fn mock_host(mut self, host: impl Into<String>) -> Self {
         self.mock_host = host.into();
+        self
+    }
+
+    #[must_use]
+    pub fn image(mut self, image: impl Into<String>) -> Self {
+        self.image = image.into();
         self
     }
 
@@ -68,7 +76,7 @@ impl CollectorTestHarnessBuilder {
 
         let config_content = std::fs::read_to_string(&self.config_path)?;
 
-        let mut container = GenericImage::new(COLLECTOR_IMAGE, &self.tag)
+        let mut container = GenericImage::new(&self.image, &self.tag)
             .with_wait_for(WaitFor::seconds(5))
             .with_copy_to(CONTAINER_CONFIG_PATH, config_content.into_bytes())
             .with_env_var(&self.exporter_endpoint_var, &mock_endpoint)
