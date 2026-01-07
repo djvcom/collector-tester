@@ -22,8 +22,8 @@ async fn test_failover_to_fallback_on_primary_failure() {
         .expect("failed to start fallback mock");
 
     let ports = common::TestPorts::allocate();
-    let primary_endpoint = format!("127.0.0.1:{}", primary_mock.addr().port());
-    let fallback_endpoint = format!("127.0.0.1:{}", fallback_mock.addr().port());
+    let primary_endpoint = format!("{}:{}", common::CONTAINER_HOST, primary_mock.addr().port());
+    let fallback_endpoint = format!("{}:{}", common::CONTAINER_HOST, fallback_mock.addr().port());
 
     let harness =
         CollectorTestHarness::builder(common::config_path("failover.yaml"), "PRIMARY_ENDPOINT")
@@ -31,6 +31,8 @@ async fn test_failover_to_fallback_on_primary_failure() {
             .env_var("COLLECTOR_HTTP_PORT", ports.http.to_string())
             .env_var("PRIMARY_ENDPOINT", &primary_endpoint)
             .env_var("FALLBACK_ENDPOINT", &fallback_endpoint)
+            .expose_port(ports.grpc)
+            .expose_port(ports.http)
             .start()
             .await
             .expect("failed to start harness");

@@ -22,8 +22,8 @@ async fn test_loadbalancing_distributes_spans() {
         .expect("failed to start backend 2");
 
     let ports = common::TestPorts::allocate();
-    let backend_1_addr = format!("127.0.0.1:{}", backend_1.addr().port());
-    let backend_2_addr = format!("127.0.0.1:{}", backend_2.addr().port());
+    let backend_1_addr = format!("{}:{}", common::CONTAINER_HOST, backend_1.addr().port());
+    let backend_2_addr = format!("{}:{}", common::CONTAINER_HOST, backend_2.addr().port());
 
     let harness =
         CollectorTestHarness::builder(common::config_path("loadbalancing.yaml"), "BACKEND_1")
@@ -31,6 +31,8 @@ async fn test_loadbalancing_distributes_spans() {
             .env_var("COLLECTOR_HTTP_PORT", ports.http.to_string())
             .env_var("BACKEND_1", &backend_1_addr)
             .env_var("BACKEND_2", &backend_2_addr)
+            .expose_port(ports.grpc)
+            .expose_port(ports.http)
             .start()
             .await
             .expect("failed to start harness");

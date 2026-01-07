@@ -11,6 +11,11 @@ use crate::error::{Error, Result};
 
 const CONTAINER_CONFIG_PATH: &str = "/etc/otelcol-contrib/config.yaml";
 const COLLECTOR_IMAGE: &str = "otel/opentelemetry-collector-contrib";
+
+#[cfg(target_os = "macos")]
+const DEFAULT_MOCK_HOST: &str = "host.docker.internal";
+
+#[cfg(not(target_os = "macos"))]
 const DEFAULT_MOCK_HOST: &str = "127.0.0.1";
 
 pub fn find_free_port() -> Result<u16> {
@@ -25,6 +30,8 @@ pub struct CollectorTestHarnessBuilder {
     image: String,
     tag: String,
     env_vars: HashMap<String, String>,
+    #[cfg(target_os = "macos")]
+    exposed_ports: Vec<u16>,
 }
 
 impl CollectorTestHarnessBuilder {
@@ -36,6 +43,8 @@ impl CollectorTestHarnessBuilder {
             image: COLLECTOR_IMAGE.to_string(),
             tag: "latest".to_string(),
             env_vars: HashMap::new(),
+            #[cfg(target_os = "macos")]
+            exposed_ports: Vec::new(),
         }
     }
 
@@ -63,6 +72,19 @@ impl CollectorTestHarnessBuilder {
         self
     }
 
+    #[cfg(target_os = "macos")]
+    #[must_use]
+    pub fn expose_port(mut self, port: u16) -> Self {
+        self.exposed_ports.push(port);
+        self
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[must_use]
+    pub fn expose_port(self, _port: u16) -> Self {
+        self
+    }
+
     pub async fn start(self) -> Result<CollectorTestHarness> {
         let mock_server = MockServer::builder()
             .protocol(Protocol::Grpc)
@@ -80,8 +102,19 @@ impl CollectorTestHarnessBuilder {
             .with_wait_for(WaitFor::seconds(5))
             .with_copy_to(CONTAINER_CONFIG_PATH, config_content.into_bytes())
             .with_env_var(&self.exporter_endpoint_var, &mock_endpoint)
-            .with_startup_timeout(Duration::from_secs(30))
-            .with_network("host");
+            .with_startup_timeout(Duration::from_secs(30));
+
+        #[cfg(target_os = "macos")]
+        {
+            for port in &self.exposed_ports {
+                container = container.with_mapped_port(*port, (*port).into());
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            container = container.with_network("host");
+        }
 
         for (key, value) in &self.env_vars {
             container = container.with_env_var(key, value);

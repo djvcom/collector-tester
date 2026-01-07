@@ -6,6 +6,12 @@ use collector_tester::container::{
     CollectorTestHarness, CollectorTestHarnessBuilder, find_free_port,
 };
 
+#[cfg(target_os = "macos")]
+pub const CONTAINER_HOST: &str = "host.docker.internal";
+
+#[cfg(not(target_os = "macos"))]
+pub const CONTAINER_HOST: &str = "127.0.0.1";
+
 pub fn config_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -40,6 +46,8 @@ pub fn harness_with_ports(config_name: &str) -> (CollectorTestHarnessBuilder, Te
     let ports = TestPorts::allocate();
     let builder = CollectorTestHarness::builder(config_path(config_name), "OTLP_EXPORTER_ENDPOINT")
         .env_var("COLLECTOR_GRPC_PORT", ports.grpc.to_string())
-        .env_var("COLLECTOR_HTTP_PORT", ports.http.to_string());
+        .env_var("COLLECTOR_HTTP_PORT", ports.http.to_string())
+        .expose_port(ports.grpc)
+        .expose_port(ports.http);
     (builder, ports)
 }
